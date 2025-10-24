@@ -2,6 +2,7 @@ const axios = require('axios');
 const redisClient = require('../config/redis');
 const CircuitBreaker = require('../utils/circuitBreaker');
 const { rateLimiter } = require('../middleware/rateLimiter');
+const logger = require('../utils/logger');
 
 const NEWS_API_KEY = '3f69a9f4918544f0bd697a85dea3257b';
 const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
@@ -17,6 +18,14 @@ const newsCircuitBreaker = new CircuitBreaker({
 
 // Get latest headlines - single endpoint with caching
 const getNews = async (req, res) => {
+  const startTime = Date.now();
+  console.log('📰 NEWS PAGE LOGGER - Request received:', {
+    query: req.query,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  });
+  logger.info('News API request received', { query: req.query });
+  
   try {
     const { 
       q = '', 
@@ -43,7 +52,18 @@ const getNews = async (req, res) => {
     const cachedData = await redisClient.get(cacheKey);
     
     if (cachedData) {
-      console.log('News data served from cache');
+      logger.info('News data served from cache');
+      const responseTime = Date.now() - startTime;
+      console.log('📰 NEWS PAGE LOGGER - Cache hit response:', {
+        responseTime: `${responseTime}ms`,
+        cacheHit: true,
+        dataLength: JSON.parse(cachedData).articles?.length || 0
+      });
+      await logger.api('/api/v1/news', 'GET', 200, responseTime, {
+        jwt: req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null,
+        cacheHit: true,
+        query: req.query
+      });
       return res.json({
         success: true,
         message: 'Latest headlines fetched successfully (from cache)',
@@ -54,7 +74,7 @@ const getNews = async (req, res) => {
     }
 
     // If not in cache, fetch from API with circuit breaker
-    console.log('News data fetched from API');
+    logger.info('News data fetched from API');
     const endpoint = `${NEWS_API_BASE_URL}/top-headlines`;
     const operation = () => axios.get(endpoint, { params });
     const response = await newsCircuitBreaker.execute(operation);
@@ -68,6 +88,18 @@ const getNews = async (req, res) => {
     // Cache the response (expires after configured TTL)
     await redisClient.setEx(cacheKey, cacheTTL, JSON.stringify(responseData));
 
+    const responseTime = Date.now() - startTime;
+    console.log('📰 NEWS PAGE LOGGER - API response:', {
+      responseTime: `${responseTime}ms`,
+      cacheHit: false,
+      dataLength: responseData.articles?.length || 0,
+      totalResults: responseData.totalResults
+    });
+    await logger.api('/api/v1/news', 'GET', 200, responseTime, {
+      jwt: req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null,
+      cacheHit: false,
+      query: req.query
+    });
     res.json({
       success: true,
       message: 'Latest headlines fetched successfully',
@@ -76,7 +108,8 @@ const getNews = async (req, res) => {
       rateLimit: req.rateLimitInfo || null
     });
   } catch (error) {
-    console.error('News API error:', error.response?.data || error.message);
+    const responseTime = Date.now() - startTime;
+    logger.error('News API error', { error: error.message, responseTime });
     
     // Handle circuit breaker errors
     if (error.message.includes('Circuit breaker is OPEN')) {

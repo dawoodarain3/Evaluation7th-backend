@@ -2,6 +2,7 @@ const axios = require('axios');
 const redisClient = require('../config/redis');
 const CircuitBreaker = require('../utils/circuitBreaker');
 const { rateLimiter } = require('../middleware/rateLimiter');
+const logger = require('../utils/logger');
 
 const OPENWEATHER_API_KEY = '564a688b37916ef39ec3f4eba83ee1bb';
 const OPENWEATHER_API_BASE_URL = 'https://api.openweathermap.org/data/2.5';
@@ -16,6 +17,14 @@ const weatherCircuitBreaker = new CircuitBreaker({
 
 // Get weather for a selected city
 const getWeather = async (req, res) => {
+  const startTime = Date.now();
+  console.log('🌤️ WEATHER PAGE LOGGER - Request received:', {
+    query: req.query,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  });
+  logger.info('Weather API request received', { query: req.query });
+  
   try {
     const { 
       q = '', 
@@ -45,18 +54,31 @@ const getWeather = async (req, res) => {
     const cachedData = await redisClient.get(cacheKey);
     
     if (cachedData) {
-      console.log('Weather data served from cache');
+      logger.info('Weather data served from cache');
+      const responseTime = Date.now() - startTime;
+      const weatherData = JSON.parse(cachedData);
+      console.log('🌤️ WEATHER PAGE LOGGER - Cache hit response:', {
+        responseTime: `${responseTime}ms`,
+        cacheHit: true,
+        location: weatherData.location?.name || 'Unknown',
+        temperature: weatherData.temperature?.current || 'N/A'
+      });
+      await logger.api('/api/v1/weather', 'GET', 200, responseTime, {
+        jwt: req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null,
+        cacheHit: true,
+        query: req.query
+      });
       return res.json({
         success: true,
         message: 'Weather data fetched successfully (from cache)',
-        data: JSON.parse(cachedData),
+        data: weatherData,
         cached: true,
         rateLimit: req.rateLimitInfo || null
       });
     }
 
     // If not in cache, fetch from API with circuit breaker
-    console.log('Weather data fetched from API');
+    logger.info('Weather data fetched from API');
     const operation = () => axios.get(`${OPENWEATHER_API_BASE_URL}/weather`, { params });
     const response = await weatherCircuitBreaker.execute(operation);
 
@@ -100,6 +122,19 @@ const getWeather = async (req, res) => {
     // Cache the response (expires after configured TTL)
     await redisClient.setEx(cacheKey, cacheTTL, JSON.stringify(responseData));
 
+    const responseTime = Date.now() - startTime;
+    console.log('🌤️ WEATHER PAGE LOGGER - API response:', {
+      responseTime: `${responseTime}ms`,
+      cacheHit: false,
+      location: responseData.location?.name || 'Unknown',
+      temperature: responseData.temperature?.current || 'N/A',
+      weather: responseData.weather?.main || 'Unknown'
+    });
+    await logger.api('/api/v1/weather', 'GET', 200, responseTime, {
+      jwt: req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null,
+      cacheHit: false,
+      query: req.query
+    });
     res.json({
       success: true,
       message: 'Weather data fetched successfully',
@@ -108,7 +143,8 @@ const getWeather = async (req, res) => {
       rateLimit: req.rateLimitInfo || null
     });
   } catch (error) {
-    console.error('Weather API error:', error.response?.data || error.message);
+    const responseTime = Date.now() - startTime;
+    logger.error('Weather API error', { error: error.message, responseTime });
     
     // Handle circuit breaker errors
     if (error.message.includes('Circuit breaker is OPEN')) {

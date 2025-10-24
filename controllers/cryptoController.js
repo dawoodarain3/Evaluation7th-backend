@@ -2,6 +2,7 @@ const axios = require('axios');
 const redisClient = require('../config/redis');
 const CircuitBreaker = require('../utils/circuitBreaker');
 const { rateLimiter } = require('../middleware/rateLimiter');
+const logger = require('../utils/logger');
 
 const COINGECKO_API_BASE_URL = 'https://api.coingecko.com/api/v3';
 const cacheTTL = parseInt(process.env.REDIS_TTL) || 300;
@@ -15,6 +16,14 @@ const cryptoCircuitBreaker = new CircuitBreaker({
 
 // Get crypto market data with caching
 const getCryptoData = async (req, res) => {
+  const startTime = Date.now();
+  console.log('💰 CRYPTO PAGE LOGGER - Request received:', {
+    query: req.query,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  });
+  logger.info('Crypto API request received', { query: req.query });
+  
   try {
     // Simple parameters - only vs_currency
     const { vs_currency = 'usd' } = req.query;
@@ -31,7 +40,18 @@ const getCryptoData = async (req, res) => {
     const cachedData = await redisClient.get(cacheKey);
     
     if (cachedData) {
-      console.log('Crypto data served from cache');
+      logger.info('Crypto data served from cache');
+      const responseTime = Date.now() - startTime;
+      console.log('💰 CRYPTO PAGE LOGGER - Cache hit response:', {
+        responseTime: `${responseTime}ms`,
+        cacheHit: true,
+        dataLength: JSON.parse(cachedData).coins?.length || 0
+      });
+      await logger.api('/api/v1/crypto', 'GET', 200, responseTime, {
+        jwt: req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null,
+        cacheHit: true,
+        query: req.query
+      });
       return res.json({
         success: true,
         message: 'Crypto market data fetched successfully (from cache)',
@@ -42,13 +62,13 @@ const getCryptoData = async (req, res) => {
     }
 
     // If not in cache, fetch from API with circuit breaker
-    console.log('Crypto data fetched from API');
+    logger.info('Crypto data fetched from API');
     let response;
     try {
       const operation = () => axios.get(`${COINGECKO_API_BASE_URL}/coins/markets`, { params });
       response = await cryptoCircuitBreaker.execute(operation);
     } catch (error) {
-      console.error('Crypto API error:', error.response?.data || error.message);
+      logger.error('Crypto API error', { error: error.message });
       return res.status(500).json({
         success: false,
         message: 'Unable to fetch crypto data at the moment. Please try again later.',
@@ -91,10 +111,19 @@ const getCryptoData = async (req, res) => {
     };
 
     // Cache the response (expires after configured TTL)
-    await redisClient.setEx(cacheKey, cacheTTL, JSON.stringify(responseData)).then(() => {
-      console.log('Crypto data cached successfully');
-    });
+    await redisClient.setEx(cacheKey, cacheTTL, JSON.stringify(responseData));
 
+    const responseTime = Date.now() - startTime;
+    console.log('💰 CRYPTO PAGE LOGGER - API response:', {
+      responseTime: `${responseTime}ms`,
+      cacheHit: false,
+      dataLength: responseData.coins?.length || 0
+    });
+    await logger.api('/api/v1/crypto', 'GET', 200, responseTime, {
+      jwt: req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null,
+      cacheHit: false,
+      query: req.query
+    });
     res.json({
       success: true,
       message: 'Crypto market data fetched successfully',
@@ -103,7 +132,8 @@ const getCryptoData = async (req, res) => {
       rateLimit: req.rateLimitInfo || null
     });
   } catch (error) {
-    console.error('Crypto API error:', error.response?.data || error.message);
+    const responseTime = Date.now() - startTime;
+    logger.error('Crypto API error', { error: error.message, responseTime });
     
     // Handle circuit breaker errors
     if (error.message.includes('Circuit breaker is OPEN')) {
