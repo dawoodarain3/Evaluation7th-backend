@@ -1,6 +1,7 @@
 const axios = require('axios');
 const redisClient = require('../config/redis');
 const CircuitBreaker = require('../utils/circuitBreaker');
+const { rateLimiter } = require('../middleware/rateLimiter');
 
 const OPENWEATHER_API_KEY = '564a688b37916ef39ec3f4eba83ee1bb';
 const OPENWEATHER_API_BASE_URL = 'https://api.openweathermap.org/data/2.5';
@@ -49,7 +50,8 @@ const getWeather = async (req, res) => {
         success: true,
         message: 'Weather data fetched successfully (from cache)',
         data: JSON.parse(cachedData),
-        cached: true
+        cached: true,
+        rateLimit: req.rateLimitInfo || null
       });
     }
 
@@ -102,7 +104,8 @@ const getWeather = async (req, res) => {
       success: true,
       message: 'Weather data fetched successfully',
       data: responseData,
-      cached: false
+      cached: false,
+      rateLimit: req.rateLimitInfo || null
     });
   } catch (error) {
     console.error('Weather API error:', error.response?.data || error.message);
@@ -151,5 +154,6 @@ const getWeather = async (req, res) => {
 };
 
 module.exports = {
-  getWeather
+  getWeather,
+  rateLimiter: rateLimiter('weather')
 };

@@ -1,6 +1,7 @@
 const axios = require('axios');
 const redisClient = require('../config/redis');
 const CircuitBreaker = require('../utils/circuitBreaker');
+const { rateLimiter } = require('../middleware/rateLimiter');
 
 const COINGECKO_API_BASE_URL = 'https://api.coingecko.com/api/v3';
 const cacheTTL = parseInt(process.env.REDIS_TTL) || 300;
@@ -35,7 +36,8 @@ const getCryptoData = async (req, res) => {
         success: true,
         message: 'Crypto market data fetched successfully (from cache)',
         data: JSON.parse(cachedData),
-        cached: true
+        cached: true,
+        rateLimit: req.rateLimitInfo || null
       });
     }
 
@@ -97,7 +99,8 @@ const getCryptoData = async (req, res) => {
       success: true,
       message: 'Crypto market data fetched successfully',
       data: responseData,
-      cached: false
+      cached: false,
+      rateLimit: req.rateLimitInfo || null
     });
   } catch (error) {
     console.error('Crypto API error:', error.response?.data || error.message);
@@ -138,5 +141,6 @@ const getCryptoData = async (req, res) => {
 };
 
 module.exports = {
-  getCryptoData
+  getCryptoData,
+  rateLimiter: rateLimiter('crypto')
 };

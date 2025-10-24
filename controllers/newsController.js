@@ -1,6 +1,7 @@
 const axios = require('axios');
 const redisClient = require('../config/redis');
 const CircuitBreaker = require('../utils/circuitBreaker');
+const { rateLimiter } = require('../middleware/rateLimiter');
 
 const NEWS_API_KEY = '3f69a9f4918544f0bd697a85dea3257b';
 const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
@@ -47,7 +48,8 @@ const getNews = async (req, res) => {
         success: true,
         message: 'Latest headlines fetched successfully (from cache)',
         data: JSON.parse(cachedData),
-        cached: true
+        cached: true,
+        rateLimit: req.rateLimitInfo || null
       });
     }
 
@@ -70,7 +72,8 @@ const getNews = async (req, res) => {
       success: true,
       message: 'Latest headlines fetched successfully',
       data: responseData,
-      cached: false
+      cached: false,
+      rateLimit: req.rateLimitInfo || null
     });
   } catch (error) {
     console.error('News API error:', error.response?.data || error.message);
@@ -119,5 +122,6 @@ const getNews = async (req, res) => {
 };
 
 module.exports = {
-  getNews
+  getNews,
+  rateLimiter: rateLimiter('news')
 };
