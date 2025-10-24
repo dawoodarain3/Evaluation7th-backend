@@ -7,7 +7,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 // Signup function
 const signup = async (req, res) => {
   try {
+    console.log('Signup request received:', req.body);
     const { email, password, name, plan = PLAN_ENUM.FREE } = req.body;
+
+    // Validate required fields
+    if (!email || !password || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, password, and name are required'
+      });
+    }
 
     // Validate plan field
     if (!User.isValidPlan(plan)) {
@@ -34,15 +43,23 @@ const signup = async (req, res) => {
       plan
     });
 
+    console.log('User created successfully:', newUser.email);
     res.status(201).json({
       success: true,
-      message: 'User created successfully'
+      message: 'User created successfully',
+      user: {
+        id: newUser._id,
+        email: newUser.email,
+        name: newUser.name,
+        plan: newUser.plan
+      }
     });
   } catch (error) {
     console.error('Signup error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
+      error: error.message
     });
   }
 };
@@ -50,10 +67,21 @@ const signup = async (req, res) => {
 // Login function
 const login = async (req, res) => {
   try {
+    console.log('Login request received:', { email: req.body.email });
     const { email, password } = req.body;
+
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
+    }
 
     // Find user and include password field
     const user = await User.findOne({ email }).select('+password');
+    console.log('User found:', user ? 'Yes' : 'No');
+    
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -63,6 +91,8 @@ const login = async (req, res) => {
 
     // Check password using the comparePassword method
     const isValidPassword = await user.comparePassword(password);
+    console.log('Password valid:', isValidPassword);
+    
     if (!isValidPassword) {
       return res.status(401).json({
         success: false,
@@ -77,6 +107,7 @@ const login = async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    console.log('Login successful for:', user.email);
     res.json({
       success: true,
       message: 'Login successful',
@@ -94,7 +125,8 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
+      error: error.message
     });
   }
 };

@@ -10,15 +10,12 @@ const auth = require('../middleware/auth');
 router.use('/v1/auth', authRoutes);
 
 // News endpoint - direct implementation
-// GET /api/v1/news?q=apple&category=technology&country=us&page=1&pageSize=20
-router.get('/v1/news', getNews);
+router.get('/v1/news',auth, getNews);
 
 // Crypto endpoint - direct implementation
-// GET /api/v1/crypto - Get global crypto market data
-router.get('/v1/crypto', auth, getCryptoData);
+router.get('/v1/crypto',auth, getCryptoData);
 
 // Weather endpoint - direct implementation
-// GET /api/v1/weather - Show weather for a selected city
-router.get('/v1/weather', getWeather);
+router.get('/v1/weather',auth, getWeather);
 
 module.exports = router;

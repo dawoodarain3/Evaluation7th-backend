@@ -2,12 +2,10 @@ class CircuitBreaker {
   constructor(options = {}) {
     this.failureThreshold = options.failureThreshold || 5;
     this.resetTimeout = options.resetTimeout || 60000; // 60 seconds
-    this.monitoringPeriod = options.monitoringPeriod || 10000; // 10 seconds
     this.timeout = options.timeout || 10000; // 10 seconds
     
     this.state = 'CLOSED'; // CLOSED, OPEN, HALF_OPEN
     this.failureCount = 0;
-    this.lastFailureTime = null;
     this.nextAttempt = null;
   }
 
@@ -54,21 +52,11 @@ class CircuitBreaker {
 
   onFailure() {
     this.failureCount++;
-    this.lastFailureTime = Date.now();
 
     if (this.failureCount >= this.failureThreshold) {
       this.state = 'OPEN';
       this.nextAttempt = Date.now() + this.resetTimeout;
     }
-  }
-
-  getState() {
-    return {
-      state: this.state,
-      failureCount: this.failureCount,
-      lastFailureTime: this.lastFailureTime,
-      nextAttempt: this.nextAttempt
-    };
   }
 }
 
